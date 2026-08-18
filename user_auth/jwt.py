@@ -270,14 +270,15 @@ def auth_required() -> bool:
     """
     Whether endpoints demand a valid token.
 
-    Defaults to FALSE, because the web UI has no sign-in screen yet -- defaulting
-    to true would ship an app that 401s on its own first request. This is a
-    scaffolding default, not a considered security posture: while it holds,
-    everything (chat, uploads, CRM, and the OpenAI spend behind them) is open to
-    anyone who can reach the process.
+    Defaults to FALSE so the system can be exercised end to end without first
+    creating an account -- every request then runs as DEV_USER_ID, which still
+    gets its own conversation threads and CRM sessions.
 
-    Set AUTH_REQUIRED=true the moment this is reachable from anywhere but
-    localhost.
+    This is a testing default, not a security posture. While it holds, chat,
+    uploads, CRM and the model spend behind them are open to anyone who can
+    reach the process. The sign-in UI and the token machinery are both built and
+    tested, so turning this on is one variable plus a JWT_SECRET_KEY of 32+
+    characters -- do that before this is reachable from anywhere but localhost.
     """
     return os.getenv("AUTH_REQUIRED", "false").strip().lower() in {"1", "true", "yes", "on"}
 

@@ -46,12 +46,11 @@ services:
       # they are not repeated here -- two places to change one thing is how
       # they end up disagreeing.
 
-      # Authentication is OFF while the UI has no sign-in screen. Every request
-      # runs as a shared development user, so anyone with this URL can chat,
-      # upload documents, and spend whatever OpenAI charges for it.
-      #
-      # The token machinery in user_auth/ is complete and tested -- only the
-      # login UI is missing. Flip this to true the moment that lands.
+      # Authentication is OFF so the system can be exercised without creating an
+      # account first. Every request runs as a shared development user, so
+      # anyone with this URL can chat, upload documents, and spend whatever
+      # OpenAI charges for it. The sign-in UI and the token machinery are both
+      # built and tested -- closing it is this line plus JWT_SECRET_KEY.
       - key: AUTH_REQUIRED
         value: "false"
 

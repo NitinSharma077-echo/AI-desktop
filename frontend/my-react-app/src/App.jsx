@@ -81,12 +81,27 @@ export default function App() {
       setAuthRequired(required)
       // Only ask who we are when it matters -- with auth off, /auth/me would
       // 401 on a token this server never issued.
-      if (required) setAccount(await api.me())
+      const who = required ? await api.me() : null
+      if (cancelled) return
+      setAccount(who)
+      // Documents are shared, so they are worth loading even when nobody is
+      // signed in -- but not while a sign-in screen is about to 401 the call.
+      if (!required || who) loadDocuments()
     })()
     return () => {
       cancelled = true
     }
-  }, [refreshStatus])
+  }, [refreshStatus, loadDocuments])
+
+  /** Replace the document list with whatever the server actually has. */
+  const loadDocuments = useCallback(async () => {
+    try {
+      setDocuments(await api.listDocuments())
+    } catch {
+      // A store that cannot be read is already reported wherever it is used;
+      // an empty sidebar panel is a fine outcome here.
+    }
+  }, [])
 
   /** Drop to the sign-in screen, discarding anything the last account could see. */
   const signOut = useCallback(() => {
@@ -101,17 +116,20 @@ export default function App() {
     setBusy(true)
     try {
       if (files.length) {
-        const added = []
+        let uploaded = 0
         for (const file of files) {
           try {
             const { filename, chunks } = await api.uploadDocument(file)
-            added.push({ name: filename, chunks })
+            uploaded += 1
             toast(`Indexed ${chunks} chunk(s) from ${filename}`, 'ok')
           } catch (err) {
             toast(`${file.name}: ${err.message}`, 'err')
           }
         }
-        if (added.length) setDocuments((current) => [...current, ...added])
+        // Re-read rather than appending: uploading the same file twice adds
+        // chunks to the existing entry instead of creating a second one, and
+        // only the server knows the resulting totals.
+        if (uploaded) await loadDocuments()
       }
 
       // Attachments on their own are a complete action -- index them and stop,
@@ -146,6 +164,17 @@ export default function App() {
     } finally {
       setBusy(false)
       refreshStatus()
+    }
+  }
+
+  async function removeDocument(name) {
+    try {
+      await api.deleteDocument(name)
+      toast(`Removed ${name}`, 'ok')
+      await loadDocuments()
+    } catch (err) {
+      toast(err.message, 'err')
+      if (err instanceof api.SessionExpired) signOut()
     }
   }
 
@@ -209,6 +238,7 @@ export default function App() {
           account={account}
           onSignOut={account ? signOut : null}
           documents={documents}
+          onRemoveDocument={removeDocument}
           onClearDocuments={clearDocuments}
           onNewChat={() => {
             setMessages([])

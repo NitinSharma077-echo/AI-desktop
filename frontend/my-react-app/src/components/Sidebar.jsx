@@ -6,6 +6,7 @@ export default function Sidebar({
   account,
   onSignOut,
   documents,
+  onRemoveDocument,
   onClearDocuments,
   onNewChat,
   onExport,
@@ -58,10 +59,20 @@ export default function Sidebar({
           <p className="muted">Attach a PDF to search it.</p>
         ) : (
           <>
-            {documents.map((doc, i) => (
-              <div className="doc" key={`${doc.name}-${i}`}>
-                <span className="doc-name">{doc.name}</span>
+            {documents.map((doc) => (
+              <div className="doc" key={doc.name}>
+                <span className="doc-name" title={doc.name}>
+                  {doc.name}
+                </span>
                 <span className="doc-count">{doc.chunks}</span>
+                <button
+                  className="doc-remove"
+                  type="button"
+                  title={`Remove ${doc.name}`}
+                  onClick={() => onRemoveDocument(doc.name)}
+                >
+                  ×<span className="sr-only">Remove {doc.name}</span>
+                </button>
               </div>
             ))}
             <button className="ghost" type="button" onClick={onClearDocuments}>

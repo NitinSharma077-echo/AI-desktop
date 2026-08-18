@@ -94,3 +94,36 @@ def clear_all() -> None:
         # collection" has moved between Chroma releases.
         pass
     _collection = None
+
+
+def list_documents() -> list[dict]:
+    """
+    Every indexed file, with the number of chunks it contributed.
+
+    Chroma stores chunks, not files, so the file-level view has to be rebuilt by
+    grouping on the `source` metadata add_pdf writes. Without this the only
+    record of what is indexed lives in the browser tab that uploaded it, and a
+    refresh loses it.
+    """
+    stored = collection().get(include=["metadatas"])
+    counts: dict[str, int] = {}
+    for meta in stored.get("metadatas") or []:
+        source = (meta or {}).get("source")
+        if source:
+            counts[source] = counts.get(source, 0) + 1
+    return [{"name": name, "chunks": count} for name, count in sorted(counts.items())]
+
+
+def delete_document(source: str) -> int:
+    """
+    Remove one file's chunks. Returns how many were removed, 0 if unknown.
+
+    The count is read before deleting because Chroma's delete reports nothing --
+    and the caller needs to tell "removed it" from "no such file" to answer with
+    the right status code.
+    """
+    target = collection()
+    ids = (target.get(where={"source": source}, include=[]) or {}).get("ids") or []
+    if ids:
+        target.delete(where={"source": source})
+    return len(ids)

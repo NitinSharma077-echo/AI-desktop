@@ -189,6 +189,19 @@ export async function streamChat({ message, threadId, crmSessionId }, onChunk) {
 
 /* --------------------------------------------------------- documents */
 
+/** What the server currently has indexed. The store, not component state, is
+ *  the source of truth -- a refresh used to show an empty list while the
+ *  documents were still there and still being searched. */
+export async function listDocuments() {
+  return (await expectOk(await authed('/documents'))).json()
+}
+
+export async function deleteDocument(name) {
+  return (
+    await expectOk(await authed(`/documents/${encodeURIComponent(name)}`, { method: 'DELETE' }))
+  ).json()
+}
+
 export async function uploadDocument(file) {
   const body = new FormData()
   body.append('file', file)

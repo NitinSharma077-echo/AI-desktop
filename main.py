@@ -219,6 +219,31 @@ class IngestResponse(BaseModel):
     chunks: int
 
 
+class DocumentInfo(BaseModel):
+    name: str
+    chunks: int
+
+
+@app.get("/documents", response_model=list[DocumentInfo], tags=["documents"])
+def list_documents(user_id: str = Depends(current_user_id)) -> list[DocumentInfo]:
+    """
+    What is currently indexed and searchable.
+
+    The store is the single source of truth here. The UI used to track uploads
+    in component state alone, so a page refresh showed an empty list while the
+    documents were still very much in the index and still being searched.
+    """
+    try:
+        from RAG.rag import list_documents as read_documents
+
+        return [DocumentInfo(**doc) for doc in read_documents()]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"The document store is not available: {exc}",
+        ) from exc
+
+
 @app.post("/documents", response_model=IngestResponse, tags=["documents"])
 async def upload_document(
     file: UploadFile = File(description="A PDF to index."),
@@ -275,6 +300,35 @@ def clear_documents(user_id: str = Depends(current_user_id)) -> dict:
             detail=f"Could not clear the document store: {exc}",
         ) from exc
     return {"cleared": True}
+
+
+# Declared after the collection-level DELETE above. Starlette matches routes in
+# registration order, but these two cannot collide anyway: "/documents" has no
+# path segment to fill {source}.
+@app.delete("/documents/{source}", tags=["documents"])
+def delete_document(source: str, user_id: str = Depends(current_user_id)) -> dict:
+    """
+    Remove one file from the index, leaving the rest searchable.
+
+    Until now the only way to undo an upload was to wipe everything, which is a
+    poor trade when one wrong PDF is polluting answers.
+    """
+    try:
+        from RAG.rag import delete_document as remove
+
+        removed = remove(source)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"The document store is not available: {exc}",
+        ) from exc
+
+    if not removed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No indexed document named {source!r}.",
+        )
+    return {"deleted": source, "chunks": removed}
 
 
 # -- Zoho CRM --------------------------------------------------------------
