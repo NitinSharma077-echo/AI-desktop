@@ -260,6 +260,28 @@ def refresh_access_token(refresh_token: str) -> str:
 # same shape of 401 as a malformed one, instead of FastAPI's own bare 403.
 _bearer_scheme = OAuth2PasswordBearer(tokenUrl="auth/token", auto_error=False)
 
+# Every request runs as this user while authentication is switched off, so a
+# single-user session still gets its own conversation threads and CRM sessions
+# rather than sharing a blank id.
+DEV_USER_ID = "dev-user"
+
+
+def auth_required() -> bool:
+    """
+    Whether endpoints demand a valid token.
+
+    Defaults to FALSE, because the web UI has no sign-in screen yet -- defaulting
+    to true would ship an app that 401s on its own first request. This is a
+    scaffolding default, not a considered security posture: while it holds,
+    everything (chat, uploads, CRM, and the OpenAI spend behind them) is open to
+    anyone who can reach the process.
+
+    Set AUTH_REQUIRED=true the moment this is reachable from anywhere but
+    localhost. The token machinery in this module is complete and tested; only
+    the login UI is missing.
+    """
+    return os.getenv("AUTH_REQUIRED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
 
 def current_user_id(token: str | None = Depends(_bearer_scheme)) -> str:
     """
@@ -268,7 +290,15 @@ def current_user_id(token: str | None = Depends(_bearer_scheme)) -> str:
     This is the `get_user_id` that zoho.routes.build_zoho_router asks for:
 
         app.include_router(build_zoho_router(current_user_id))
+
+    With AUTH_REQUIRED unset or false it hands back a fixed development identity
+    without looking at the header at all -- deliberately not "accept a token if
+    one happens to be present", which would make behaviour depend on what the
+    caller chose to send and hide the fact that nothing is being checked.
     """
+    if not auth_required():
+        return DEV_USER_ID
+
     if token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

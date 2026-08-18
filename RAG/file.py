@@ -28,7 +28,7 @@ def process_uploaded_pdf(
     chunk_size: int = 1000,
     chunk_overlap: int = 200,
 ) -> list[Document]:
-    """Take raw PDF bytes (e.g. from a Streamlit file uploader), load and chunk them."""
+    """Take raw PDF bytes (e.g. from a POST /documents upload), load and chunk them."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir) / filename
         tmp_path.write_bytes(file_bytes)

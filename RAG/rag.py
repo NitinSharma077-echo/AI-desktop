@@ -1,23 +1,49 @@
-import os
+"""Vector storage for uploaded PDFs.
+
+The collection is opened lazily. Building it eagerly would mean constructing the
+embedding function at import time, and with LLM_PROVIDER=openai that needs an API
+key -- so a missing key would take down every part of the app that merely imports
+this module, including the parts that never touch a document.
+"""
+
 import uuid
 from pathlib import Path
 
 import chromadb
-from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
 from langchain.tools import tool
 
+import providers
 from RAG.file import process_uploaded_pdf
 
 PERSIST_DIR = Path(__file__).resolve().parent / "chroma_store"
-COLLECTION_NAME = "documents"
 
-# A deployed container has no Ollama on its own localhost, so the host has to be
-# overridable or embedding silently fails everywhere except a dev machine.
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+_client = None
+_collection = None
 
-client = chromadb.PersistentClient(path=str(PERSIST_DIR))
-embedding_function = OllamaEmbeddingFunction(url=OLLAMA_BASE_URL, model_name="nomic-embed-text")
-collection = client.get_or_create_collection(name=COLLECTION_NAME, embedding_function=embedding_function)
+
+def client():
+    """The on-disk Chroma client. Cheap, and needs no provider configuration."""
+    global _client
+    if _client is None:
+        _client = chromadb.PersistentClient(path=str(PERSIST_DIR))
+    return _client
+
+
+def collection():
+    """
+    The collection for the active embedding model.
+
+    Its name carries the model (see providers.collection_name), so switching
+    provider switches collection rather than colliding with vectors of a
+    different width.
+    """
+    global _collection
+    if _collection is None:
+        _collection = client().get_or_create_collection(
+            name=providers.collection_name(),
+            embedding_function=providers.get_embedding_function(),
+        )
+    return _collection
 
 
 def add_pdf(file_bytes: bytes, filename: str = "upload.pdf") -> int:
@@ -30,13 +56,13 @@ def add_pdf(file_bytes: bytes, filename: str = "upload.pdf") -> int:
     documents = [chunk.page_content for chunk in chunks]
     metadatas = [{"source": filename, "page": chunk.metadata.get("page", -1)} for chunk in chunks]
 
-    collection.add(ids=ids, documents=documents, metadatas=metadatas)
+    collection().add(ids=ids, documents=documents, metadatas=metadatas)
     return len(chunks)
 
 
 def query(query_text: str, k: int = 4) -> list[str]:
     """Return the top-k most relevant chunk texts for a query."""
-    results = collection.query(query_texts=[query_text], n_results=k)
+    results = collection().query(query_texts=[query_text], n_results=k)
     return results["documents"][0] if results["documents"] else []
 
 
@@ -52,7 +78,19 @@ def rag_search(question: str) -> str:
 
 
 def clear_all() -> None:
-    """Delete every vector in the collection (used to reset state between sessions)."""
-    global collection
-    client.delete_collection(name=COLLECTION_NAME)
-    collection = client.get_or_create_collection(name=COLLECTION_NAME, embedding_function=embedding_function)
+    """
+    Drop the collection. Used to reset state between sessions.
+
+    Deletes rather than deletes-and-recreates: recreating needs the embedding
+    function, and this runs at startup, where an unconfigured provider would
+    turn a routine cleanup into a boot failure. The next caller of collection()
+    creates it.
+    """
+    global _collection
+    try:
+        client().delete_collection(name=providers.collection_name())
+    except Exception:
+        # Nothing to delete on a cold start, and the exception type for "no such
+        # collection" has moved between Chroma releases.
+        pass
+    _collection = None

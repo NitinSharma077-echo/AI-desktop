@@ -2,17 +2,18 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import os
 import uuid
+from functools import lru_cache
 from typing import Annotated, TypedDict
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
+
+import providers
 from tools.search import Tools
 from RAG.rag import rag_search
 
@@ -20,16 +21,24 @@ load_dotenv()
 
 tool_list = list(Tools.values()) + [rag_search]
 
-# Same reason as RAG/rag.py: localhost:11434 only exists on a dev machine, so a
-# deployed instance needs to be pointed at a reachable Ollama.
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-llm = ChatOllama(
-    model="phi4-mini", temperature=0.7, verbose=True, base_url=OLLAMA_BASE_URL
-).bind_tools(tool_list)
+@lru_cache(maxsize=1)
+def get_llm():
+    """
+    The default chat model -- OpenAI or Ollama, whichever LLM_PROVIDER selects.
+
+    Built on first use rather than at import. With LLM_PROVIDER=openai the
+    constructor needs an API key, and merely importing this module should not
+    require one: /health, /auth and the CRM routes never send a message.
+
+    Which model and which provider is providers.py's decision, not this
+    module's -- the embedding function has to agree with it, and one switch is
+    the only way to guarantee that.
+    """
+    return providers.get_chat_model().bind_tools(tool_list)
+
 
 _llm_coding: ChatGoogleGenerativeAI | None = None
-
 
 def get_llm_coding() -> ChatGoogleGenerativeAI:
     global _llm_coding
@@ -110,7 +119,7 @@ def _force_tool_call(tool_name: str, args: dict) -> ChatState:
 def chat_node(state: ChatState) -> ChatState:
     messages = state["messages"]
     last_human = next(m for m in reversed(messages) if isinstance(m, HumanMessage))
-    model = get_llm_coding() if last_human.content.startswith("/coding") else llm
+    model = get_llm_coding() if last_human.content.startswith("/coding") else get_llm()
 
     # Small local models are unreliable at deciding *when* to call a tool for
     # open-ended queries (they tend to just refuse instead). If the message
@@ -118,9 +127,15 @@ def chat_node(state: ChatState) -> ChatState:
     # directly instead of leaving that judgment call to the model. Skip this
     # if we've already forced a call for this turn (last message is its
     # result), to avoid looping.
+    #
+    # Only for local models. Keyword matching is blunt -- "what's the current
+    # status of my order" forces a web search on a question the model should
+    # just answer -- so a hosted model, which picks tools reliably on its own,
+    # is better off without the crutch.
     just_called_tool = isinstance(messages[-1], ToolMessage)
     lowered = last_human.content.lower()
-    if not just_called_tool:
+    force_tools = providers.is_local() and not last_human.content.startswith("/coding")
+    if force_tools and not just_called_tool:
         if any(word in lowered for word in DOCUMENT_TRIGGER_WORDS):
             return _force_tool_call("rag_search", {"question": last_human.content})
         if any(word in lowered for word in SEARCH_TRIGGER_WORDS):
@@ -135,8 +150,11 @@ def chat_node(state: ChatState) -> ChatState:
     # needs current information. As a fallback, if the model answered without
     # calling a tool but hedged with a knowledge-cutoff-style refusal, retry
     # once by forcing a real search on the original question. Guarded by
-    # just_called_tool so this can't loop if the retry also comes up empty.
-    if not just_called_tool and not response.tool_calls:
+    # just_called_tool so this can't loop if the retry also comes up empty, and
+    # by force_tools for the same reason as above -- a hosted model that says
+    # "I don't have access to" usually means it, and searching anyway just
+    # spends a Tavily call to answer a question that was never about the web.
+    if force_tools and not just_called_tool and not response.tool_calls:
         content_lower = (response.content or "").lower()
         if any(phrase in content_lower for phrase in REFUSAL_PHRASES):
             return _force_tool_call("search", {"query": last_human.content})
@@ -193,8 +211,9 @@ def _stream_crm(command: str, thread_id: str, crm_session_id: str | None):
 
     if not connected:
         yield (
-            "Zoho CRM isn't connected for this session. Open **Zoho CRM** in the sidebar "
-            "and paste your client ID, client secret and grant code to connect."
+            "Zoho CRM isn't connected for this session. Connect it through the API "
+            "(`POST /zoho/session/connect`, see `/docs`) -- the web UI shows "
+            "connection status but deliberately never collects credentials."
         )
         return
 

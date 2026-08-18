@@ -14,3 +14,8 @@ wheels/
 
 # Vector store data
 RAG/chroma_store/
+
+# Frontend: dependencies and build output. dist/ is rebuilt inside the Docker
+# image on every deploy, so committing it would only ever ship a stale UI.
+frontend/my-react-app/node_modules/
+frontend/my-react-app/dist/

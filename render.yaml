@@ -1,147 +1,105 @@
-# Render blueprint for the AI Desktop Streamlit app.
+# Render blueprint for AI Desktop.
+#
+# One service: uvicorn serves the API, the OpenAPI docs, and the web UI from a
+# single process. That is what keeps the browser same-origin, so the app needs
+# no CORS configuration and the token never crosses an origin boundary.
 #
 # To deploy: commit this file, push, then in the Render dashboard choose
-# New -> Blueprint and point it at this repo. Render reads this file, creates
-# the service, and prompts once for every value marked `sync: false` -- those
-# are the secrets, and keeping them out of this file is what keeps them out of
-# git. After that, every push to `branch` redeploys.
+# New -> Blueprint and point it at this repo. Render prompts once for every
+# value marked `sync: false` -- those are the secrets, and keeping them out of
+# this file is what keeps them out of git. After that, every push to `branch`
+# redeploys.
 #
 # Docs: https://render.com/docs/blueprint-spec
 
 services:
   - type: web
     name: ai-desktop
-    runtime: python
+    # Docker, not the native python runtime: the React UI needs a Node build
+    # step, and the Dockerfile does that in a stage that never ships. See the
+    # comments there.
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     # Free instances sleep after 15 minutes idle and cold-start in ~30-60s, and
-    # they cap at 512 MB RAM. Streamlit + chromadb + langchain is a heavy import
-    # graph, so if deploys start dying with "Ran out of memory", this is the
-    # line to change -- `starter` is the next step up.
+    # they cap at 512 MB RAM. chromadb + langchain is a heavy import graph, so
+    # if deploys start dying with "Ran out of memory", this is the line to
+    # change -- `starter` is the next step up.
     plan: free
     # Closest region to IST. Others: oregon, ohio, virginia, frankfurt.
     region: singapore
-    branch: master
+    branch: main
 
-    # pip, deliberately, rather than `uv sync`. uv.lock resolves pyproject.toml,
-    # whose only two dependencies are pyaudio and speechrecognition -- and
-    # PyAudio compiles against the portaudio19-dev headers, which Render's
-    # native Python runtime does not ship. A uv build dies there before it
-    # installs anything the web app actually needs. requirements.txt is the list
-    # this app really runs on.
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-
-    # Streamlit defaults to binding 8501 on localhost, which Render's proxy
-    # cannot reach; it has to take the port Render assigns and listen on all
-    # interfaces. `headless` stops it trying to open a browser and prompting for
-    # an email address on first run, which would hang the boot.
-    startCommand: >-
-      streamlit run main.py
-      --server.port $PORT
-      --server.address 0.0.0.0
-      --server.headless true
-      --browser.gatherUsageStats false
-
-    # Streamlit's own health endpoint. Without this Render probes `/`, which for
-    # Streamlit is a JS shell that can report healthy before the app is ready.
-    healthCheckPath: /_stcore/health
-
-    autoDeploy: true
-
-    envVars:
-      # .python-version already pins 3.12; this makes the patch release explicit
-      # so a Render-side default bump can't move the runtime under you.
-      - key: PYTHON_VERSION
-        value: "3.12.7"
-
-      # Otherwise Python buffers stdout and the Render log tail runs minutes behind.
-      - key: PYTHONUNBUFFERED
-        value: "1"
-
-      # --- Required: the app will not boot without this ------------------
-      # tools/search.py reads it as os.environ["TAVILY_API_KEY"] at import time,
-      # so a missing value is a KeyError during startup, not a degraded tool.
-      - key: TAVILY_API_KEY
-        sync: false
-
-      # --- Optional: features degrade individually if unset --------------
-      # Powers /coding. Worth setting: it is the only chat path that works
-      # without an Ollama server (see OLLAMA_BASE_URL below).
-      - key: GOOGLE_API_KEY
-        sync: false
-
-      # Capitalisation is deliberate -- main.py and tools/search.py both read
-      # this exact name.
-      - key: Open_weather_api_key
-        sync: false
-
-      # Default chat and PDF embedding both call Ollama. There is none inside
-      # the container, so unless this points at a reachable host those two
-      # features fail at request time (the app still starts, and /coding and
-      # /crm still work). Leave it unset to keep the localhost default for dev.
-      - key: OLLAMA_BASE_URL
-        sync: false
-
-      # --- Zoho CRM -------------------------------------------------------
-      # "memory" keeps connections in-process, which on Render means every
-      # deploy and every idle-spindown silently disconnects Zoho. Switch to
-      # "mongo" and set MONGODB_URI for connections that survive a restart.
-      - key: ZOHO_STORE
-        value: memory
-      - key: ZOHO_DEFAULT_REGION
-        value: in
-      - key: MONGODB_URI
-        sync: false
-
-      # --- Auth (user_auth/jwt.py) ---------------------------------------
-      # Unused by the Streamlit UI, required by the API service below. Minimum
-      # 32 characters -- generate one with:
-      #   python -c "import secrets; print(secrets.token_urlsafe(64))"
-      - key: JWT_SECRET_KEY
-        sync: false
-
-  # ---------------------------------------------------------------------
-  # The OpenAPI service: same code, HTTP interface. Docs at /docs.
-  # ---------------------------------------------------------------------
-  - type: web
-    name: ai-desktop-api
-    runtime: python
-    plan: free
-    region: singapore
-    branch: master
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-
-    # One worker on purpose. Both the LangGraph MemorySaver checkpointer and the
-    # default in-memory user and Zoho stores live in process memory, so a second
-    # worker would see none of the first one's conversations, accounts, or CRM
-    # connections -- requests would appear to randomly forget who you are.
-    # Raise this only after USER_STORE and ZOHO_STORE are both on Mongo.
-    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT --workers 1
+    # No buildCommand or startCommand: the Dockerfile owns both. It installs
+    # from requirements.txt rather than uv.lock on purpose -- uv.lock resolves
+    # pyproject.toml, whose only two dependencies are pyaudio and
+    # speechrecognition, and PyAudio needs portaudio19-dev headers to compile.
+    #
+    # It also runs a single worker on purpose: the LangGraph checkpointer and
+    # the in-memory user and Zoho stores all live in process memory, so a second
+    # worker would see none of the first one's conversations or connections.
 
     healthCheckPath: /health
     autoDeploy: true
 
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.7"
-      - key: PYTHONUNBUFFERED
-        value: "1"
+      # The Python version and PYTHONUNBUFFERED are set in the Dockerfile, so
+      # they are not repeated here -- two places to change one thing is how
+      # they end up disagreeing.
 
-      # Not optional here either -- /chat imports tools/search.py, which reads
-      # this at import time. Without it that endpoint returns 503.
-      - key: TAVILY_API_KEY
+      # Authentication is OFF while the UI has no sign-in screen. Every request
+      # runs as a shared development user, so anyone with this URL can chat,
+      # upload documents, and spend whatever OpenAI charges for it.
+      #
+      # The token machinery in user_auth/ is complete and tested -- only the
+      # login UI is missing. Flip this to true the moment that lands.
+      - key: AUTH_REQUIRED
+        value: "false"
+
+      # --- Model provider -------------------------------------------------
+      # providers.py defaults to ollama so a clone runs locally with no key and
+      # no spend. Deployment opts in to OpenAI explicitly: there is no Ollama
+      # inside this container, so leaving it on the default means every chat
+      # and every PDF embedding fails.
+      - key: LLM_PROVIDER
+        value: openai
+
+      # Required whenever LLM_PROVIDER=openai. OPEN_API is also accepted, since
+      # that is the name this repo's .env already uses.
+      - key: OPENAI_API_KEY
         sync: false
 
-      - key: GOOGLE_API_KEY
+      # Optional overrides -- providers.py picks defaults otherwise.
+      - key: OPENAI_CHAT_MODEL
         sync: false
-      - key: Open_weather_api_key
+      - key: OPENAI_EMBEDDING_MODEL
         sync: false
+
+      # Only consulted when LLM_PROVIDER=ollama. Leave unset in the cloud.
       - key: OLLAMA_BASE_URL
         sync: false
 
-      # Required. The API refuses to mint or verify a token without it, so
-      # every authenticated endpoint 500s until this is set.
+      # --- Required: the app will not boot without this ------------------
+      # tools/search.py reads it as os.environ["TAVILY_API_KEY"] at import time,
+      # so a missing value is a KeyError the first time /chat is called.
+      - key: TAVILY_API_KEY
+        sync: false
+
+      # Only consulted once AUTH_REQUIRED is true; set it now so turning auth on
+      # is a one-line change. Minimum 32 characters:
+      #   python -c "import secrets; print(secrets.token_urlsafe(64))"
       - key: JWT_SECRET_KEY
         sync: false
 
+      # --- Optional -------------------------------------------------------
+      # Routes the UI's "Coding" mode and the Zoho CRM agent to Gemini.
+      - key: GOOGLE_API_KEY
+        sync: false
+
+      # Capitalisation is deliberate -- tools/search.py reads this exact name.
+      - key: Open_weather_api_key
+        sync: false
+
+      # --- Accounts and sessions ------------------------------------------
       # "memory" loses every account on restart, and Render restarts on every
       # deploy and after each idle spin-down. Switch to "mongo" (with
       # MONGODB_URI) before you rely on logins surviving.
@@ -160,12 +118,11 @@ services:
       - key: MONGODB_URI
         sync: false
 
-      # Comma-separated origins for a browser frontend, e.g.
-      # https://app.example.com. Unset means the CORS middleware is not mounted
-      # at all, which is what you want while only Swagger UI is calling it.
+      # Only for a frontend hosted somewhere other than this service. The
+      # bundled UI is same-origin, so leave this unset.
       - key: CORS_ALLOW_ORIGINS
         sync: false
 
-# No `disks:` entry on purpose. RAG/chroma_store is scratch space: main.py wipes
-# the collection on every startup by design, so nothing there is worth paying to
-# persist. Add a disk only if that startup wipe ever goes away.
+# No `disks:` entry. RAG/chroma_store is scratch space -- uploaded documents do
+# not survive a restart, which matches the in-memory defaults above. Add a disk
+# only once the stores are persistent and that inconsistency starts to matter.

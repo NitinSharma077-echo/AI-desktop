@@ -1,0 +1,23 @@
+# Keeps the build context small and, more importantly, stops host-built
+# artefacts from overwriting what the image builds for itself.
+
+.git
+.venv
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Rebuilt inside the image. Copying the host's would ship a Windows-resolved
+# dependency tree into a Linux container.
+frontend/my-react-app/node_modules/
+frontend/my-react-app/dist/
+
+# Secrets never belong in an image layer -- Render injects them as env vars.
+.env
+
+# Scratch data, rebuilt on demand.
+RAG/chroma_store/
+
+.claude/
+*.md
+!README.md

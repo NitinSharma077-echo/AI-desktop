@@ -82,8 +82,13 @@ def _default_llm():
 
     This agent lives or dies on tool-calling accuracy across ~18 tools with
     detailed schemas, which is a different bar from the general chat in
-    `chat/chat.py` -- so Gemini is preferred here, and the local Ollama model is
-    only a fallback for when no key is configured.
+    `chat/chat.py` -- so Gemini is preferred here when a key is configured.
+
+    Without one it falls back to whatever providers.py selects, rather than to a
+    hardcoded local Ollama: a deployment running on OpenAI would otherwise reach
+    for a localhost that isn't there and fail every /crm command. Temperature is
+    pinned to 0 either way, which is why this builds a model instead of reusing
+    the cached default.
     """
     if os.getenv("GOOGLE_API_KEY"):
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -92,13 +97,12 @@ def _default_llm():
             model=os.getenv("ZOHO_CRM_MODEL", "gemini-2.0-flash"), temperature=0
         )
 
-    from langchain_ollama import ChatOllama
+    import providers
 
-    return ChatOllama(
-        model=os.getenv("ZOHO_CRM_OLLAMA_MODEL", "qwen2.5:7b"),
-        temperature=0,
-        base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-    )
+    # A bigger local model than general chat uses, for the same tool-accuracy
+    # reason -- but only meaningful when the active provider is Ollama.
+    override = os.getenv("ZOHO_CRM_OLLAMA_MODEL", "qwen2.5:7b") if providers.is_local() else None
+    return providers.build_chat_model(model=override, temperature=0)
 
 
 def _checkpointer():
