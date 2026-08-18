@@ -90,7 +90,9 @@ services:
         sync: false
 
       # --- Optional -------------------------------------------------------
-      # Routes the UI's "Coding" mode and the Zoho CRM agent to Gemini.
+      # Only the Zoho CRM agent uses Gemini, and only when this is set --
+      # without it the agent falls back to whatever LLM_PROVIDER selects.
+      # The UI's "Coding" mode is OpenAI now, so it does not need this.
       - key: GOOGLE_API_KEY
         sync: false
 

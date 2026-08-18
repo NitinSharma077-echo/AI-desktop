@@ -42,6 +42,12 @@ DEFAULT_MODELS = {
     OLLAMA: {"chat": "phi4-mini", "embedding": "nomic-embed-text"},
 }
 
+# `/coding` always goes to OpenAI, whatever LLM_PROVIDER says -- see
+# get_coding_model. Stronger than the everyday chat default because that is the
+# entire point of the mode; override with OPENAI_CODING_MODEL to trade capability
+# for cost.
+DEFAULT_CODING_MODEL = "gpt-4o"
+
 TEMPERATURE = 0.7
 
 
@@ -81,9 +87,9 @@ def openai_api_key() -> str:
     key = (os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_API") or "").strip()
     if not key:
         raise RuntimeError(
-            "LLM_PROVIDER=openai needs an API key. Set OPENAI_API_KEY (or OPEN_API) "
-            "in the environment. For local development without one, use "
-            "LLM_PROVIDER=ollama instead."
+            "An OpenAI API key is required. Set OPENAI_API_KEY (or OPEN_API) in the "
+            "environment. This is needed whenever LLM_PROVIDER=openai, and always "
+            "for `/coding`, which uses OpenAI regardless of the active provider."
         )
     return key
 
@@ -96,6 +102,15 @@ def chat_model() -> str:
 def embedding_model() -> str:
     key = "OPENAI_EMBEDDING_MODEL" if provider() == OPENAI else "OLLAMA_EMBEDDING_MODEL"
     return os.getenv(key, DEFAULT_MODELS[provider()]["embedding"]).strip()
+
+
+def has_openai_key() -> bool:
+    """Whether an OpenAI key is present. Never raises, unlike openai_api_key()."""
+    return bool((os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_API") or "").strip())
+
+
+def coding_model() -> str:
+    return os.getenv("OPENAI_CODING_MODEL", DEFAULT_CODING_MODEL).strip()
 
 
 def collection_name() -> str:
@@ -153,6 +168,30 @@ def get_chat_model():
 
 
 @lru_cache(maxsize=1)
+def get_coding_model():
+    """
+    The model behind `/coding`, always OpenAI.
+
+    Deliberately not routed through LLM_PROVIDER. The point of the mode is to
+    reach for something stronger than whatever is answering ordinary chat --
+    which during local testing is a small Ollama model, exactly the case where
+    the escape hatch is worth having. So this needs an OpenAI key even when
+    LLM_PROVIDER=ollama, and says so plainly when it is missing.
+
+    Tools are bound by the caller, as with the other builders.
+    """
+    from langchain_openai import ChatOpenAI
+
+    return ChatOpenAI(
+        model=coding_model(),
+        api_key=openai_api_key(),
+        temperature=TEMPERATURE,
+        timeout=float(os.getenv("LLM_TIMEOUT_SECONDS", "60")),
+        max_retries=int(os.getenv("LLM_MAX_RETRIES", "2")),
+    )
+
+
+@lru_cache(maxsize=1)
 def get_embedding_function():
     """The Chroma embedding function matching the active provider."""
     if provider() == OPENAI:
@@ -184,6 +223,8 @@ def describe() -> dict:
             "provider": "invalid",
             "chat_model": "",
             "embedding_model": "",
+            "coding_model": "",
+            "coding_ready": False,
             "ready": False,
             "detail": str(exc),
         }
@@ -199,6 +240,10 @@ def describe() -> dict:
         "provider": name,
         "chat_model": chat_model(),
         "embedding_model": embedding_model(),
+        "coding_model": coding_model(),
+        # `/coding` is OpenAI-only, so it can be unavailable while ordinary chat
+        # is fine -- an Ollama deployment with no OpenAI key is exactly that.
+        "coding_ready": has_openai_key(),
         "ready": ready,
         "detail": detail,
     }

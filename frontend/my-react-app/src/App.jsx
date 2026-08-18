@@ -21,14 +21,15 @@ function Toasts({ items }) {
 function Pills({ llm, mode, documents, turns }) {
   const chunks = documents.reduce((n, d) => n + d.chunks, 0)
   const coding = mode === 'coding'
-  const ready = coding ? true : Boolean(llm?.ready)
+  const ready = coding ? Boolean(llm?.coding_ready) : Boolean(llm?.ready)
 
   return (
     <div className="pills">
       <span className="pill">
         <span className={`dot ${ready ? 'on' : 'warn'}`} />
-        <b>{coding ? 'Gemini' : (llm?.provider ?? '—')}</b>
-        {!coding && llm?.chat_model ? ` ${llm.chat_model}` : ''}
+        <b>{coding ? 'openai' : (llm?.provider ?? '—')}</b>
+        {' '}
+        {coding ? (llm?.coding_model ?? '') : (llm?.chat_model ?? '')}
       </span>
       <span className="pill">
         <span className={`dot ${documents.length ? 'on' : ''}`} />

@@ -6,7 +6,6 @@ import uuid
 from functools import lru_cache
 from typing import Annotated, TypedDict
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -38,15 +37,18 @@ def get_llm():
     return providers.get_chat_model().bind_tools(tool_list)
 
 
-_llm_coding: ChatOpenAI | None = None
+@lru_cache(maxsize=1)
+def get_llm_coding():
+    """
+    The model behind `/coding` -- OpenAI, whatever LLM_PROVIDER says.
 
-def get_llm_coding() -> ChatOpenAI  :
-    global _llm_coding
-    if _llm_coding is None:
-        _llm_coding = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7).bind_tools(
-            tool_list
-        )
-    return _llm_coding
+    Built through providers.py rather than constructing ChatOpenAI here, so it
+    picks up the same key resolution (OPENAI_API_KEY *or* OPEN_API, which is the
+    name this repo's .env uses), timeout and retry settings as everything else.
+    Constructed directly, it would read only OPENAI_API_KEY and fail on a machine
+    where the key is under the other name.
+    """
+    return providers.get_coding_model().bind_tools(tool_list)
 
 SYSTEM_PROMPT = (
     "You are a helpful assistant. Use the `search` or `web_search` tools to look things up "

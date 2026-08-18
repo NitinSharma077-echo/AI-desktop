@@ -16,8 +16,12 @@ export default function Sidebar({
   let note = 'Backend unreachable.'
   let warn = true
   if (mode === 'coding') {
-    note = 'Routing to Gemini (needs GOOGLE_API_KEY).'
-    warn = false
+    // `/coding` is OpenAI regardless of the active provider, so it can be
+    // unavailable while ordinary chat works -- an Ollama box with no key.
+    note = llm?.coding_ready
+      ? `openai · ${llm.coding_model}`
+      : 'Needs an OpenAI API key (OPENAI_API_KEY or OPEN_API).'
+    warn = !llm?.coding_ready
   } else if (llm) {
     note = llm.ready ? `${llm.provider} · ${llm.chat_model}` : llm.detail
     warn = !llm.ready

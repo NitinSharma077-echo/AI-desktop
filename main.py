@@ -173,7 +173,7 @@ def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> ChatResp
     """
     Send a message and wait for the whole reply.
 
-    Prefix with `/coding` to route to Gemini, or `/crm` to reach the CRM agent.
+    Prefix with `/coding` to route to OpenAI, or `/crm` to reach the CRM agent.
     """
     try:
         pieces = list(_chat_stream(body, user_id))
