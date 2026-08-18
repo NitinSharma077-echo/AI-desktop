@@ -48,6 +48,10 @@ export default function App() {
   // null while the first /health call is in flight, so the sign-in screen never
   // flashes in front of someone who is already signed in.
   const [authRequired, setAuthRequired] = useState(null)
+  // The whole auth block from /health, not just the flag: the sign-in screen
+  // needs to know whether the server can actually issue a token before it
+  // invites someone to try.
+  const [authInfo, setAuthInfo] = useState(null)
   const [account, setAccount] = useState(null)
   const [mode, setMode] = useState('chat')
   const [threadId, setThreadId] = useState(() => crypto.randomUUID())
@@ -66,6 +70,7 @@ export default function App() {
   const refreshStatus = useCallback(async () => {
     const status = await api.status()
     setLlm(status?.llm ?? null)
+    setAuthInfo(status?.auth ?? null)
     setOpenAccess(status ? !status.auth.required : false)
     // Unreachable backend is treated as "auth required": the sign-in screen
     // surfaces the connection error on submit, whereas letting the chat UI
@@ -210,7 +215,7 @@ export default function App() {
   if (authRequired && !account) {
     return (
       <>
-        <Auth onSignedIn={setAccount} />
+        <Auth info={authInfo} onSignedIn={setAccount} />
         <Toasts items={toasts} />
       </>
     )
