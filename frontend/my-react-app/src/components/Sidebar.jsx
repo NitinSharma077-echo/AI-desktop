@@ -3,6 +3,8 @@ export default function Sidebar({
   mode,
   onMode,
   llm,
+  account,
+  onSignOut,
   documents,
   onClearDocuments,
   onNewChat,
@@ -26,7 +28,7 @@ export default function Sidebar({
         <span className="mark">✦</span>
         <span>
           <span className="brand-name">AI Desktop</span>
-          <span className="brand-sub">chat · documents · crm</span>
+          <span className="brand-sub">{account?.username ?? 'chat · documents · crm'}</span>
         </span>
       </div>
 
@@ -77,6 +79,13 @@ export default function Sidebar({
         <button className="ghost" type="button" onClick={onExport}>
           Export transcript
         </button>
+        {/* Absent when auth is off -- there is no session to end, and a button
+            that cannot do anything is worse than no button. */}
+        {onSignOut && (
+          <button className="ghost" type="button" onClick={onSignOut}>
+            Sign out
+          </button>
+        )}
       </div>
 
       <p className="foot">

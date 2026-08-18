@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from './api'
+import Auth from './components/Auth'
 import Sidebar from './components/Sidebar'
 import Thread from './components/Thread'
 import Composer from './components/Composer'
@@ -44,6 +45,10 @@ function Pills({ llm, mode, documents, turns }) {
 export default function App() {
   const [llm, setLlm] = useState(null)
   const [openAccess, setOpenAccess] = useState(false)
+  // null while the first /health call is in flight, so the sign-in screen never
+  // flashes in front of someone who is already signed in.
+  const [authRequired, setAuthRequired] = useState(null)
+  const [account, setAccount] = useState(null)
   const [mode, setMode] = useState('chat')
   const [threadId, setThreadId] = useState(() => crypto.randomUUID())
   const [messages, setMessages] = useState([])
@@ -62,11 +67,35 @@ export default function App() {
     const status = await api.status()
     setLlm(status?.llm ?? null)
     setOpenAccess(status ? !status.auth.required : false)
+    // Unreachable backend is treated as "auth required": the sign-in screen
+    // surfaces the connection error on submit, whereas letting the chat UI
+    // through would fail later and less clearly.
+    return status ? status.auth.required : true
   }, [])
 
   useEffect(() => {
-    refreshStatus()
+    let cancelled = false
+    ;(async () => {
+      const required = await refreshStatus()
+      if (cancelled) return
+      setAuthRequired(required)
+      // Only ask who we are when it matters -- with auth off, /auth/me would
+      // 401 on a token this server never issued.
+      if (required) setAccount(await api.me())
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [refreshStatus])
+
+  /** Drop to the sign-in screen, discarding anything the last account could see. */
+  const signOut = useCallback(() => {
+    api.logout()
+    setAccount(null)
+    setMessages([])
+    setDocuments([])
+    setThreadId(crypto.randomUUID())
+  }, [])
 
   async function send({ text, files }) {
     setBusy(true)
@@ -109,6 +138,10 @@ export default function App() {
         replace({ streaming: false })
       } catch (err) {
         replace({ content: `Something went wrong: ${err.message}`, streaming: false, error: true })
+        // The refresh token is spent too. Staying on this screen would mean
+        // every further click failing the same way, so hand back the sign-in
+        // form instead.
+        if (err instanceof api.SessionExpired) signOut()
       }
     } finally {
       setBusy(false)
@@ -123,6 +156,7 @@ export default function App() {
       toast('Document index emptied', 'ok')
     } catch (err) {
       toast(err.message, 'err')
+      if (err instanceof api.SessionExpired) signOut()
     }
   }
 
@@ -137,6 +171,24 @@ export default function App() {
     link.download = `ai-desktop-${Date.now()}.md`
     link.click()
     URL.revokeObjectURL(url)
+  }
+
+  // Nothing but the background until /health answers. The alternative is
+  // guessing, and guessing wrong means either a sign-in screen flashing at
+  // someone who is already signed in, or the chat UI appearing for a moment
+  // before being yanked away.
+  if (authRequired === null) {
+    return <div className="aurora" aria-hidden="true" />
+  }
+
+  if (authRequired && !account) {
+    return (
+      <>
+        <div className="aurora" aria-hidden="true" />
+        <Auth onSignedIn={setAccount} />
+        <Toasts items={toasts} />
+      </>
+    )
   }
 
   return (
@@ -160,6 +212,8 @@ export default function App() {
           mode={mode}
           onMode={setMode}
           llm={llm}
+          account={account}
+          onSignOut={account ? signOut : null}
           documents={documents}
           onClearDocuments={clearDocuments}
           onNewChat={() => {

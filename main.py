@@ -38,6 +38,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import providers
+from user_auth import jwt as auth_config
 from user_auth.jwt import auth_required, current_user_id
 from user_auth.routes import router as auth_router
 
@@ -114,7 +115,7 @@ def health() -> dict:
     return {
         "status": "ok",
         "llm": providers.describe(),
-        "auth": {"required": auth_required()},
+        "auth": auth_config.describe(),
         # Echoed so a split deployment can be diagnosed with one curl instead of
         # log access: an empty list here is why the browser is blocking calls.
         # These are public origins, not a secret.
@@ -316,13 +317,19 @@ def _startup_diagnostics() -> None:
     """
     log = logging.getLogger(__name__)
 
-    if not auth_required():
+    auth = auth_config.describe()
+    if not auth["required"]:
         # The UI shows a banner too, but whoever deploys this may only ever look
         # at the logs.
         log.warning(
             "AUTH_REQUIRED is off: every endpoint is open and runs as a shared "
             "development user. Set AUTH_REQUIRED=true before exposing this."
         )
+    elif not auth["ready"]:
+        # AUTH_REQUIRED=true with a broken secret is the worst of both worlds:
+        # /auth/register still returns 201, so the app looks alive, but nobody
+        # can obtain a token and every login is a bare 500.
+        log.error("AUTH_REQUIRED=true but tokens cannot be issued. %s", auth["detail"])
 
     if _is_hosted() and not _origins:
         log.warning(

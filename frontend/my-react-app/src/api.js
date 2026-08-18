@@ -91,6 +91,58 @@ async function expectOk(res) {
   return res
 }
 
+/* -------------------------------------------------------------- auth */
+
+/**
+ * Exchange a username and password for a token pair, and store it.
+ *
+ * Form-encoded, not JSON: /auth/token implements the OAuth2 password flow,
+ * which specifies form fields. Sending JSON here gets a 422.
+ */
+export async function login(username, password) {
+  const res = await fetch(url('/auth/token'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ username, password }),
+  })
+  await expectOk(res)
+  const pair = await res.json()
+  tokens.save(pair)
+  return pair
+}
+
+/** Create an account. Returns the user; it does not sign them in. */
+export async function register(username, password) {
+  const res = await fetch(url('/auth/register'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  await expectOk(res)
+  return res.json()
+}
+
+/**
+ * The signed-in account, or null.
+ *
+ * Null for every "not signed in" reason -- no token, expired past refresh, or a
+ * token signed with a key this server no longer has. The caller only needs to
+ * know whether to show the sign-in screen.
+ */
+export async function me() {
+  if (!tokens.access) return null
+  try {
+    const res = await authed('/auth/me')
+    return res.ok ? await res.json() : null
+  } catch {
+    return null
+  }
+}
+
+export function logout() {
+  tokens.clear()
+}
+
 /* ------------------------------------------------------------ system */
 
 /** Provider configuration and whether auth is switched on. Null if unreachable. */

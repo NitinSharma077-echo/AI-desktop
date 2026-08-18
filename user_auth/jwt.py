@@ -277,10 +277,34 @@ def auth_required() -> bool:
     anyone who can reach the process.
 
     Set AUTH_REQUIRED=true the moment this is reachable from anywhere but
-    localhost. The token machinery in this module is complete and tested; only
-    the login UI is missing.
+    localhost.
     """
     return os.getenv("AUTH_REQUIRED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def describe() -> dict:
+    """
+    Auth configuration, safe to expose and guaranteed not to raise.
+
+    Exists because the failure it reports is otherwise invisible until someone
+    tries to log in: hashing a password needs no secret, so /auth/register
+    happily returns 201, and only /auth/token discovers JWT_SECRET_KEY is
+    missing -- as an unhandled RuntimeError, which FastAPI serves as a bare 500
+    with no clue what went wrong. Reporting it here turns that into one line at
+    startup and one field in /health. Never returns the key itself.
+    """
+    required = auth_required()
+    try:
+        get_settings()
+    except RuntimeError as exc:
+        # Only meaningful when auth is on: with it off, no token is ever minted
+        # or checked, so a missing secret changes nothing.
+        return {
+            "required": required,
+            "ready": not required,
+            "detail": str(exc).replace("\n", " "),
+        }
+    return {"required": required, "ready": True, "detail": ""}
 
 
 def current_user_id(token: str | None = Depends(_bearer_scheme)) -> str:
