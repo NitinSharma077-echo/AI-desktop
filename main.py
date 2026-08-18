@@ -115,6 +115,10 @@ def health() -> dict:
         "status": "ok",
         "llm": providers.describe(),
         "auth": {"required": auth_required()},
+        # Echoed so a split deployment can be diagnosed with one curl instead of
+        # log access: an empty list here is why the browser is blocking calls.
+        # These are public origins, not a secret.
+        "cors": {"allow_origins": _origins},
     }
 
 
@@ -291,13 +295,61 @@ except Exception as exc:  # pragma: no cover - depends on deployment config
 
 # -- the web UI ------------------------------------------------------------
 
-if not auth_required():
-    # Loud, once, at startup. The UI shows a banner too, but whoever deploys
-    # this may only ever look at the logs.
-    logging.getLogger(__name__).warning(
-        "AUTH_REQUIRED is off: every endpoint is open and runs as a shared "
-        "development user. Set AUTH_REQUIRED=true before exposing this."
-    )
+# Platform-set variables that mean "this is not someone's laptop". Used to keep
+# the warnings below quiet during local development, where the same settings are
+# the correct ones.
+PLATFORM_VARS = ("RENDER", "DYNO", "FLY_APP_NAME", "K_SERVICE", "WEBSITE_INSTANCE_ID")
+
+
+def _is_hosted() -> bool:
+    return any(os.getenv(v) for v in PLATFORM_VARS)
+
+
+def _startup_diagnostics() -> None:
+    """
+    Say plainly, at boot, which settings will make this deployment fail.
+
+    Every one of these produces a runtime failure far from its cause: CORS shows
+    up as a browser console error the server never sees, an unreachable Ollama as
+    "Connection refused" inside a 502, a missing key as a 401 from OpenAI. Naming
+    them here turns a debugging session into a log line.
+    """
+    log = logging.getLogger(__name__)
+
+    if not auth_required():
+        # The UI shows a banner too, but whoever deploys this may only ever look
+        # at the logs.
+        log.warning(
+            "AUTH_REQUIRED is off: every endpoint is open and runs as a shared "
+            "development user. Set AUTH_REQUIRED=true before exposing this."
+        )
+
+    if _is_hosted() and not _origins:
+        log.warning(
+            "CORS_ALLOW_ORIGINS is not set. Same-origin requests still work, but a "
+            "frontend served from another host will have every response blocked by "
+            "the browser -- and the preflight will 405, because the CORS middleware "
+            "is not even mounted. Set it to the frontend's origin, scheme included, "
+            "no trailing slash."
+        )
+
+    llm = providers.describe()
+    if not llm["ready"]:
+        log.warning("Model provider not ready: %s", llm["detail"])
+    elif _is_hosted() and llm["provider"] == "ollama":
+        base = providers.ollama_base_url()
+        if "localhost" in base or "127.0.0.1" in base:
+            log.warning(
+                "LLM_PROVIDER=ollama pointing at %s, on what looks like a hosted "
+                "environment. There is no Ollama in this container, so every chat "
+                "and every PDF embedding will fail with 'Connection refused'. Set "
+                "LLM_PROVIDER=openai (plus OPENAI_API_KEY), or point OLLAMA_BASE_URL "
+                "at a reachable host.",
+                base,
+            )
+
+
+_startup_diagnostics()
 
 # Mounted last, so the API routes registered above always win a path collision.
 # Vite emits hashed files into dist/assets and copies public/ to the dist root,
