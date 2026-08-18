@@ -4,7 +4,9 @@ import { renderMarkdown } from '../markdown'
 function Message({ role, content, files, error, streaming }) {
   return (
     <article className={`msg ${role}${error ? ' error' : ''}`}>
-      <span className="av">{role === 'assistant' ? '✦' : '◉'}</span>
+      {/* A named turn rather than an avatar glyph. Two coloured circles have to
+          be learned; "You" and "AI Desktop" are read. */}
+      <span className="role">{role === 'assistant' ? 'AI Desktop' : 'You'}</span>
       <div className="body">
         {streaming && !content ? (
           <span className="typing" aria-label="Thinking">

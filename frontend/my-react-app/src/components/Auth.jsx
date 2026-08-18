@@ -44,7 +44,7 @@ export default function Auth({ onSignedIn }) {
     <main className="auth">
       <section className="auth-card">
         <div className="brand">
-          <span className="mark">✦</span>
+          <span className="mark" aria-hidden="true">A</span>
           <span>
             <span className="brand-name">AI Desktop</span>
             <span className="brand-sub">chat · documents · crm</span>

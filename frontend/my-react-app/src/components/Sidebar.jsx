@@ -25,7 +25,7 @@ export default function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="mark">✦</span>
+        <span className="mark" aria-hidden="true">A</span>
         <span>
           <span className="brand-name">AI Desktop</span>
           <span className="brand-sub">{account?.username ?? 'chat · documents · crm'}</span>

@@ -173,18 +173,14 @@ export default function App() {
     URL.revokeObjectURL(url)
   }
 
-  // Nothing but the background until /health answers. The alternative is
-  // guessing, and guessing wrong means either a sign-in screen flashing at
-  // someone who is already signed in, or the chat UI appearing for a moment
-  // before being yanked away.
-  if (authRequired === null) {
-    return <div className="aurora" aria-hidden="true" />
-  }
+  // Blank until /health answers. Guessing wrong means either a sign-in screen
+  // flashing at someone already signed in, or the chat UI appearing for a moment
+  // before being yanked away -- and the paper background is a fine empty state.
+  if (authRequired === null) return null
 
   if (authRequired && !account) {
     return (
       <>
-        <div className="aurora" aria-hidden="true" />
         <Auth onSignedIn={setAccount} />
         <Toasts items={toasts} />
       </>
@@ -193,8 +189,6 @@ export default function App() {
 
   return (
     <>
-      <div className="aurora" aria-hidden="true" />
-
       {openAccess && (
         // Not decoration. With AUTH_REQUIRED off, anyone who can reach this URL
         // can chat, upload, and spend whatever the model provider charges -- so
@@ -225,19 +219,26 @@ export default function App() {
         />
 
         <main className="main">
-          <header className="hero">
-            <h1>What can I help you build?</h1>
-            <p>
-              Ask anything. Attach a PDF to ground the answer, or start with <code>/crm</code> to
-              reach Zoho.
-            </p>
+          {/* The hero is an empty state, not a permanent header. Once there is a
+              conversation to read, the status line is all that needs to stay. */}
+          {messages.length === 0 ? (
+            <header className="hero">
+              <p className="hero-eyebrow">Workspace</p>
+              <h1>Ask a question, or hand it a document.</h1>
+              <p>
+                Answers can draw on web search, the weather, and any PDF you attach. Start a
+                message with <code>/crm</code> to talk to Zoho instead.
+              </p>
+              <Pills llm={llm} mode={mode} documents={documents} turns={0} />
+            </header>
+          ) : (
             <Pills
               llm={llm}
               mode={mode}
               documents={documents}
               turns={messages.filter((m) => m.role === 'user').length}
             />
-          </header>
+          )}
 
           <Thread messages={messages} />
           <Composer busy={busy} onSend={send} />
