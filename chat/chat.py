@@ -38,12 +38,12 @@ def get_llm():
     return providers.get_chat_model().bind_tools(tool_list)
 
 
-_llm_coding: ChatGoogleGenerativeAI | None = None
+_llm_coding: ChatOpenAI | None = None
 
-def get_llm_coding() -> ChatGoogleGenerativeAI:
+def get_llm_coding() -> ChatOpenAI  :
     global _llm_coding
     if _llm_coding is None:
-        _llm_coding = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.7).bind_tools(
+        _llm_coding = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7).bind_tools(
             tool_list
         )
     return _llm_coding
