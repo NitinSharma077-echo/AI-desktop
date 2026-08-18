@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "smoke": "vite build --ssr smoke/render.jsx --outDir smoke/dist --logLevel error && node smoke/dist/render.js",
+    "verify": "npm run lint && npm run build && npm run smoke"
   },
   "dependencies": {
     "react": "^19.2.8",

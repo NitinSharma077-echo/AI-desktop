@@ -78,6 +78,25 @@ export default function App() {
     return status ? status.auth.required : true
   }, [])
 
+  /** Replace the document list with whatever the server actually has. */
+  const loadDocuments = useCallback(async () => {
+    try {
+      setDocuments(await api.listDocuments())
+    } catch {
+      // A store that cannot be read is already reported wherever it is used;
+      // an empty sidebar panel is a fine outcome here.
+    }
+  }, [])
+
+  /** Drop to the sign-in screen, discarding anything the last account could see. */
+  const signOut = useCallback(() => {
+    api.logout()
+    setAccount(null)
+    setMessages([])
+    setDocuments([])
+    setThreadId(crypto.randomUUID())
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -97,25 +116,6 @@ export default function App() {
       cancelled = true
     }
   }, [refreshStatus, loadDocuments])
-
-  /** Replace the document list with whatever the server actually has. */
-  const loadDocuments = useCallback(async () => {
-    try {
-      setDocuments(await api.listDocuments())
-    } catch {
-      // A store that cannot be read is already reported wherever it is used;
-      // an empty sidebar panel is a fine outcome here.
-    }
-  }, [])
-
-  /** Drop to the sign-in screen, discarding anything the last account could see. */
-  const signOut = useCallback(() => {
-    api.logout()
-    setAccount(null)
-    setMessages([])
-    setDocuments([])
-    setThreadId(crypto.randomUUID())
-  }, [])
 
   async function send({ text, files }) {
     setBusy(true)
